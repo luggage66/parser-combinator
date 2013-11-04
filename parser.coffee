@@ -10,14 +10,14 @@ class Input
 	getCurrent: () =>
 		@source.charAt(@position)
 
-	advance: () =>
+	advance: (distance = 1) =>
 		if @isAtEnd()
 			throw "Already at the end of the atream, can't advnace()"
 
 		newLineNumber = if @getCurrent() == '\n' then @line = 1 else @line
-		newColumnNumber = if @getCurrent() == '\n' then 1 else @column + 1
+		newColumnNumber = if @getCurrent() == '\n' then 1 else @column + distance
 
-		new Input(@source, @position + 1, newLineNumber, newColumnNumber)
+		new Input(@source, @position + distance, newLineNumber, newColumnNumber)
 
 Failure = (remainder, message, expectations) ->
 	successful: false
@@ -166,6 +166,13 @@ Parser = (parser) ->
 
 			return firstResult;
 
+	parser.Concat = (second) ->
+		throw "no second parser in Concat()" if not second
+
+		first = parser
+
+		first.Then((f) -> second.Select((s) -> f.concat(s)))
+
 	parser.Select = (map) ->
 		throw "no map supplied to in Select()" if not map
 
@@ -180,6 +187,21 @@ Parser = (parser) ->
 				Parse.WhiteSpace().Select () ->
 					return x;
 
+	# names part of a grammar for better error messages
+	parser.Named: (description) ->
+		throw "no description supplied to Named()" if not description
+
+		Parser (i) ->
+			firstResult = parser(i)
+
+			if not firstResult.successful
+				if firstResult.remainder.isEqual(i)
+					return Failure(firstResult.remainder, firstResult.message, [ description ])
+				else
+					return firstResult
+
+			return firstResult
+
 	return parser
 
 Return = (value) ->
@@ -187,11 +209,8 @@ Return = (value) ->
 
 Parse =
 	Char: (charOrPredicate, description) ->
-
 		throw "charOrPredicate missing" if not charOrPredicate
 		throw "description missing" if not description
-
-		console.log typeof(charOrPredicate)
 
 		#if they give us a character, turn that into a predicate
 		if (typeof(charOrPredicate) != 'function')
@@ -209,6 +228,33 @@ Parse =
 				return Failure(i, "Unexpected #{i.getCurrent()}", [ description ])
 
 			return Failure(i, "Unexpected end of input reached", [ description ])
+
+	CharExcept: (charOrPredicate, description) ->
+		throw "charOrPredicate missing" if not charOrPredicate
+		throw "description missing" if not description
+
+		#if they give us a character, turn that into a predicate
+		if (typeof(charOrPredicate) != 'function')
+			char = charOrPredicate
+			charOrPredicate = (c) -> c == char
+
+		return Parse.Char(
+			(c) -> not charOrPredicate(c)
+			description
+		)
+
+	String: (text, description) ->
+		throw "text missing" if not text
+		throw "description missing" if not description
+		
+		Parser (i) ->
+			(Parse.Char for c in text.split(''))
+				.reduce(
+					(a, p) -> a.Concat(p.Once())
+					Return []
+				)
+				.Named text
+
 
 	WhiteSpace: () ->
 		whitSpaceChars = [
@@ -255,6 +301,6 @@ console.log JSON.stringify grammar.Parse("123;")
 
 #should fail
 console.log '-------------Test 2, should fail ------------------'
-console.log semicolon.Parse("x")
+console.log Parse.WhiteSpace().Parse("    \t ")
 
 #console.log Parse.Parse(grammar, stringToParse)
