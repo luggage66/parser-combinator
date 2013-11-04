@@ -30,60 +30,134 @@ Success = (value, remainder) ->
 	value: value
 	remainder: remainder
 
-Char = (predicate, description) ->
+DetermineBestError = (firstFailure, secondFailure) ->
+	if secondFailure.remainder.position > firstFailure.remainder.position
+		return secondFailure
 
-	throw "predicate missing" if not predicate
-	throw "description missing" if not description
+	if secondFailure.remainder.position == firstFailure.remainder.position
+		return Failure(
+			firstFailure.remainder,
+			firstFailure.message,
+			firstFailure.expectations.concat(secondFailure.expectations)
+		)
 
-	return (i) -> 
+	return firstFailure
 
-		if not input.isAtEnd()
-			
-			if predicate(i.getCurrent())
+#takes an undecorated parser (a function) and adds all sorts of goodness to it
+Parser = (parser) ->
 
-				return Success(i.getCurrent(), i.advance())
+	parser.TryParse = (inputString) ->
+		throw "inputString missing" if not inputString
 
-			return Failure(i, "Unexpected #{i.getCurrent()}", [ description ])
+		parser(new Input(inputString))
+	
+	parser.Parse = (inputString) ->
+		throw "inputString missing" if not inputString
 
-		return Failure(i, "Unexpected end of input reached", [ description ])
+		result = parser.TryParse(inputString)
 
-Or = (first, second) ->
-	return (i) ->
-		firstResult = first(i)
+		return result.value if result.successful
 
-		return 
+		expectationsMessage =
+			if result.expectations
+				' expected ' + result.expectations.join(' or ')
+			else
+				''
+		#todo: show recently consumed
+		throw "Parsing Failure: #{result.message}; #{expectationsMessage};"
 
-TryParse = (grammar, inputString) ->
-	throw "grammar missing" if not grammar
-	throw "inputString missing" if not inputString
+	parser.Or = (second) ->
+		throw "no second parser in Or()" if not second
 
-	grammar(new Input(inputString))
+		first = parser #just for clarity
 
-Parse = (grammar, inputString) ->
-	throw "grammar missing" if not grammar
-	throw "inputString missing" if not inputString
+		Parser (i) ->
 
-	result = TryParse(grammar, inputString)
+			firstResult = first(i)
 
-	return result.value if result.successful
+			if not firstResult.successful
+				secondResult = second(i)
 
-	expectationsMessage =
-		if result.expectations
-			' expected ' + result.expectations.join(' or ')
-		else
-			''
-	#todo: show recently consumed
-	throw "Parsing Failure: #{result.message}; #{expectationsMessage};"
+				if not secondResult.successful
+					return DetermineBestError firstResult, secondResult
 
+				return secondResult
 
-stringToParse =
-	"""
-	5
-	"""
+			if firstResult.remainder.isEqual(i)
+				secondResult = second(i)
 
-input = new Input(stringToParse)
+				if not secondResult.successful
+					return firstResult
 
-grammar = Char(((x) -> x == '5'), 'a character')
+				return secondResult
 
-console.log Parse(grammar, stringToParse)
+			return firstResult
 
+	parser.Then = (second) ->
+		throw "no second parser in Then()" if not second
+
+		first = parser
+
+		Parser (i) ->
+			firstResult = first(i)
+
+			if firstResult.successful
+				return second(firstResult.value)(firstResult.remainder);
+
+			return firstResult;
+
+	parser.Map = (map) ->
+		throw "no map supplied to in Map()" if not map
+
+		parser.Then (x) -> Parse.Return(map(x))
+
+	return parser
+
+Return = (value) ->
+	Parser (i) -> Success(value, i)
+
+Parse =
+	Char: (predicate, description) ->
+
+		throw "predicate missing" if not predicate
+		throw "description missing" if not description
+
+		Parser (i) -> 
+
+			if not i.isAtEnd()
+				
+				if predicate(i.getCurrent())
+
+					return Success(i.getCurrent(), i.advance())
+
+				return Failure(i, "Unexpected #{i.getCurrent()}", [ description ])
+
+			return Failure(i, "Unexpected end of input reached", [ description ])
+
+	Digit: () ->
+
+		digits = [ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' ]
+
+		Parse.Char(
+			(c) -> digits.indexOf(c) >= 0
+			'a digit'
+		)
+
+	Return: (value) ->
+		Parser (i) ->
+			Success(value, i)
+
+# END PARSER LIBRARY, BEGIN TEST
+
+# define the grammar
+grammar = Parse.Digit().Map((d) -> 'Number: ' + d)
+
+#should succeed
+console.log '-------------Test 1, should succeed ------------------'
+console.log grammar.Parse("3")
+
+#should fail
+console.log '-------------Test 2, should fail ------------------'
+console.log grammar.Parse("x")
+
+#console.log Parse.Parse(grammar, stringToParse)
