@@ -158,8 +158,7 @@ semicolon = Parse.Char(
 
 singleDigit = Parse.Digit().Map((d) -> 'Number: ' + d)
 
-grammar = singleDigit.Then (x) ->
-	semicolon
+grammar = singleDigit  #.Then (x) -> semicolon
 
 #should succeed
 console.log '-------------Test 1, should succeed ------------------'
