@@ -149,12 +149,21 @@ Parse =
 
 # END PARSER LIBRARY, BEGIN TEST
 
-# define the grammar
-grammar = Parse.Digit().Map((d) -> 'Number: ' + d)
+# define the grammar, a digit followed by a semicolor
+
+semicolon = Parse.Char(
+	(x) -> x == ';'
+	'a semicolon'
+)
+
+singleDigit = Parse.Digit().Map((d) -> 'Number: ' + d)
+
+grammar = singleDigit.Then (x) ->
+	semicolon
 
 #should succeed
 console.log '-------------Test 1, should succeed ------------------'
-console.log grammar.Parse("3")
+console.log grammar.Parse("3;")
 
 #should fail
 console.log '-------------Test 2, should fail ------------------'
