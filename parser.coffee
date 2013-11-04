@@ -93,6 +93,66 @@ Parser = (parser) ->
 
 			return firstResult
 
+	parser.Once = () ->
+		parser.Select((r) -> [ r ])
+
+	parser.AtLeastOnce = () ->
+		parser.Once()
+			.Then(
+				(t1) ->
+					parser.XMany().Select(
+						(ts) -> t1.concat(ts)
+					)
+			)
+
+	#Implemented imperatively to decrease stack usage.
+	parser.Many = () ->
+		Parser (i) ->
+			remainder = i
+			result = []
+			r = parser(i)
+
+			while (r.successful)
+				if remainder.isEqual(r.remainder)
+					break
+
+				result.push(r.value)
+				remainder = r.remainder
+				r = parser(remainder)
+
+			return Success(result, remainder)
+
+	parser.XMany = () ->
+		parser.Many().Then((m) -> parser.Once().XOr(Return(m)))	
+		
+	parser.XOr = (second) ->
+		throw "no second parser in XOr()" if not second
+
+		Parser (i) ->
+			firstResult = parser(i)
+
+			if not firstResult.successful
+				#The 'X' part
+				if not firstResult.remainder.isEqual(i)
+					return firstResult
+
+				secondResult = second(i)
+
+				if not secondResult.successful
+					return DetermineBestError firstResult, secondResult
+
+				return secondResult
+
+			#This handles a zero-length successful application of first.
+			if firstResult.remainder.isEqual(i)
+				secondResult = second(i)
+				if not secondResult.successful
+					return firstResult
+
+				return secondResult
+
+			return firstResult
+
 	parser.Then = (second) ->
 		throw "no second parser in Then()" if not second
 
@@ -106,10 +166,19 @@ Parser = (parser) ->
 
 			return firstResult;
 
-	parser.Map = (map) ->
-		throw "no map supplied to in Map()" if not map
+	parser.Select = (map) ->
+		throw "no map supplied to in Select()" if not map
 
 		parser.Then (x) -> Parse.Return(map(x))
+
+	parser.Text = () ->
+		parser.Select((chars) -> chars.join(''))
+
+	parser.Token = () ->
+		Parse.WhiteSpace().Select () ->
+			parser.Select (x) ->
+				Parse.WhiteSpace().Select () ->
+					return x;
 
 	return parser
 
@@ -117,22 +186,42 @@ Return = (value) ->
 	Parser (i) -> Success(value, i)
 
 Parse =
-	Char: (predicate, description) ->
+	Char: (charOrPredicate, description) ->
 
-		throw "predicate missing" if not predicate
+		throw "charOrPredicate missing" if not charOrPredicate
 		throw "description missing" if not description
+
+		console.log typeof(charOrPredicate)
+
+		#if they give us a character, turn that into a predicate
+		if (typeof(charOrPredicate) != 'function')
+			char = charOrPredicate
+			charOrPredicate = (c) -> c == char
 
 		Parser (i) -> 
 
 			if not i.isAtEnd()
 				
-				if predicate(i.getCurrent())
+				if charOrPredicate(i.getCurrent())
 
 					return Success(i.getCurrent(), i.advance())
 
 				return Failure(i, "Unexpected #{i.getCurrent()}", [ description ])
 
 			return Failure(i, "Unexpected end of input reached", [ description ])
+
+	WhiteSpace: () ->
+		whitSpaceChars = [
+			' '
+			'\t'
+			'\n'
+			'\r'
+		]
+
+		Parse.Char(
+			(c) -> whitSpaceChars.indexOf(c) >= 0
+			'whitespace'
+		)
 
 	Digit: () ->
 
@@ -151,21 +240,21 @@ Parse =
 
 # define the grammar, a digit followed by a semicolor
 
-semicolon = Parse.Char(
-	(x) -> x == ';'
-	'a semicolon'
-)
+semicolon = Parse.Char ';', 'a semicolon'
 
-singleDigit = Parse.Digit().Map((d) -> 'Number: ' + d)
+integer = Parse.Digit() # a digit (0, 1, 2, etc)
+	.AtLeastOnce() 	#as many in a row as there are
+	.Text() 	#combine into one string
+	.Select(parseInt) #parse to a proper integer
 
-grammar = singleDigit  #.Then (x) -> semicolon
+grammar = integer
 
 #should succeed
 console.log '-------------Test 1, should succeed ------------------'
-console.log grammar.Parse("3;")
+console.log JSON.stringify grammar.Parse("123;")
 
 #should fail
 console.log '-------------Test 2, should fail ------------------'
-console.log grammar.Parse("x")
+console.log semicolon.Parse("x")
 
 #console.log Parse.Parse(grammar, stringToParse)
