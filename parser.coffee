@@ -14,7 +14,7 @@ class Input
 		if @isAtEnd()
 			throw "Already at the end of the atream, can't advnace()"
 
-		newLineNumber = if @getCurrent() == '\n' then @line = 1 else @line
+		newLineNumber = if @getCurrent() == '\n' then @line + 1 else @line
 		newColumnNumber = if @getCurrent() == '\n' then 1 else @column + distance
 
 		new Input(@source, @position + distance, newLineNumber, newColumnNumber)
