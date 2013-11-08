@@ -64,7 +64,7 @@ Parser = (parser) ->
 			else
 				''
 		#todo: show recently consumed
-		throw "Parsing Failure: #{result.message}; #{expectationsMessage};"
+		throw "Parsing Failure: #{result.message} #{expectationsMessage}; line #{result.remainder.line} column #{result.remainder.column}"
 
 	parser.Or = (second) ->
 		throw "no second parser in Or()" if not second
@@ -182,21 +182,28 @@ Parser = (parser) ->
 		parser.Select((chars) -> chars.join(''))
 
 	parser.Token = () ->
-		Parse.WhiteSpace().Select () ->
-			parser.Select (x) ->
-				Parse.WhiteSpace().Select () ->
-					return x;
+
+		Parse.WhiteSpace().Many()
+			.Then(
+				(x) -> parser
+				.Then(
+					(x2) -> Parse.WhiteSpace().Many()
+					.Then(
+						(x3) -> Return(x2)
+					)
+				)
+			)
 
 	# names part of a grammar for better error messages
-	parser.Named: (description) ->
-		throw "no description supplied to Named()" if not description
+	parser.Named = (name) ->
+		throw 'no name supplied to Named()' if not description
 
 		Parser (i) ->
 			firstResult = parser(i)
 
 			if not firstResult.successful
 				if firstResult.remainder.isEqual(i)
-					return Failure(firstResult.remainder, firstResult.message, [ description ])
+					return Failure(firstResult.remainder, firstResult.message, [ name ])
 				else
 					return firstResult
 
@@ -269,6 +276,14 @@ Parse =
 			'whitespace'
 		)
 
+	Letter: () ->
+		letters = [ 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z' ]
+
+		Parse.Char(
+			(c) -> letters.indexOf(c) >= 0
+			'a letter'
+		)
+
 	Digit: () ->
 
 		digits = [ '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' ]
@@ -287,20 +302,42 @@ Parse =
 # define the grammar, a digit followed by a semicolor
 
 semicolon = Parse.Char ';', 'a semicolon'
+equalsSign = Parse.Char '=', 'equals sign'
 
 integer = Parse.Digit() # a digit (0, 1, 2, etc)
 	.AtLeastOnce() 	#as many in a row as there are
+	.Token()
 	.Text() 	#combine into one string
 	.Select(parseInt) #parse to a proper integer
 
-grammar = integer
+identifier = Parse.Letter().Once().Then(
+	(first) -> Parse.Letter().Or(Parse.Digit()).Many().Then(
+		(rest) -> Parse.Return(first.concat(rest).join(''))
+	)
+).Token()
 
-#should succeed
-console.log '-------------Test 1, should succeed ------------------'
-console.log JSON.stringify grammar.Parse("123;")
+assignment = identifier.Then(
+	(identifier) -> equalsSign.Then(
+		(equals) -> integer.Then(
+			(value) -> Parse.Return({assignment: { variable: identifier, newValue: value}})
+		)
+	)
+)
 
-#should fail
-console.log '-------------Test 2, should fail ------------------'
-console.log Parse.WhiteSpace().Parse("    \t ")
 
-#console.log Parse.Parse(grammar, stringToParse)
+statement = assignment.Then((a) -> semicolon.Then((semi) -> Parse.Return(a))) #TODO: support more statement types
+
+
+grammar = statement.Many()
+
+textToParse =
+	"""
+	variable1 = 5;
+	variable2 = 6;
+	"""
+
+#Do it.
+output = grammar.Parse textToParse
+
+#write it to the console, formatted
+console.log JSON.stringify output, null, '\t'
