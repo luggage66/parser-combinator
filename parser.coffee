@@ -328,7 +328,7 @@ assignment = identifier.Then(
 statement = assignment.Then((a) -> semicolon.Then((semi) -> Parse.Return(a))) #TODO: support more statement types
 
 
-grammar = statement.Many()
+grammar = statement.AtLeastOnce()
 
 textToParse =
 	"""
